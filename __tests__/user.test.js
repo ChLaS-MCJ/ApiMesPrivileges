@@ -1,11 +1,13 @@
+// __tests__/user.test.js
 const request = require('supertest');
 const app = require('../server');
 const db = require('../db.config');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 describe('🧪 USER TESTS', () => {
   let adminToken;
   let clientToken;
-  let prestataireToken;
   let testUserId;
 
   // ==========================================
@@ -14,14 +16,14 @@ describe('🧪 USER TESTS', () => {
   beforeAll(async () => {
     await db.syncDatabase(true);
     
-    // Créer un admin pour les tests admin
+    // ✅ CRÉER L'ADMIN avec hooks: false
     const adminRole = await db.Role.findOne({ where: { name: 'admin' } });
     const adminUser = await db.User.create({
       email: 'admin@test.com',
-      password: 'Admin123!',
+      password: await bcrypt.hash('Admin123!', 10),
       roleId: adminRole.id,
       isEmailVerified: true
-    });
+    }, { hooks: false });
 
     // Login admin
     const adminLogin = await request(app)
@@ -57,15 +59,27 @@ describe('🧪 USER TESTS', () => {
     });
 
     test('❌ Devrait refuser un email déjà utilisé', async () => {
+      // D'abord créer un compte
+      await request(app)
+        .post('/api/users/register')
+        .send({
+          email: 'duplicate@test.com',
+          password: 'Test123!',
+          prenom: 'Test',
+          nom: 'User'
+        });
+      
+      // Puis essayer de créer avec le même email
       const res = await request(app)
         .post('/api/users/register')
         .send({
-          email: 'client@test.com',
-          password: 'Client123!'
+          email: 'duplicate@test.com',
+          password: 'Test123!'
         });
 
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
+      expect(res.body.message).toContain('déjà utilisé');
     });
 
     test('❌ Devrait refuser un mot de passe faible', async () => {
@@ -86,11 +100,27 @@ describe('🧪 USER TESTS', () => {
   // ==========================================
   describe('POST /api/users/login', () => {
     test('✅ Devrait connecter avec identifiants valides', async () => {
+      // Créer un user avec hooks: false
+      const clientRole = await db.Role.findOne({ where: { name: 'client' } });
+      const loginUser = await db.User.create({
+        email: 'login-test@test.com',
+        password: await bcrypt.hash('LoginTest123!', 10),
+        roleId: clientRole.id
+      }, { hooks: false });
+
+      // Créer profil client
+      await db.Client.create({
+        userId: loginUser.id,
+        qrCode: `QRC_${crypto.randomBytes(16).toString('hex')}`,
+        prenom: 'Login',
+        nom: 'Test'
+      });
+
       const res = await request(app)
         .post('/api/users/login')
         .send({
-          email: 'client@test.com',
-          password: 'Client123!'
+          email: 'login-test@test.com',
+          password: 'LoginTest123!'
         });
 
       expect(res.status).toBe(200);
@@ -104,7 +134,7 @@ describe('🧪 USER TESTS', () => {
         .post('/api/users/login')
         .send({
           email: 'client@test.com',
-          password: 'WrongPassword123!'
+          password: 'WrongPassword!'
         });
 
       expect(res.status).toBe(401);
@@ -113,7 +143,7 @@ describe('🧪 USER TESTS', () => {
   });
 
   // ==========================================
-  // 3. CONNEXION GOOGLE
+  // 3. OAUTH
   // ==========================================
   describe('POST /api/users/google', () => {
     test('✅ Devrait créer/connecter avec Google', async () => {
@@ -122,8 +152,8 @@ describe('🧪 USER TESTS', () => {
         .send({
           googleId: 'google123456',
           email: 'google@test.com',
-          nom: 'Google',
-          prenom: 'User'
+          prenom: 'Google',
+          nom: 'User'
         });
 
       expect(res.status).toBe(200);
@@ -132,9 +162,6 @@ describe('🧪 USER TESTS', () => {
     });
   });
 
-  // ==========================================
-  // 4. CONNEXION APPLE
-  // ==========================================
   describe('POST /api/users/apple', () => {
     test('✅ Devrait créer/connecter avec Apple', async () => {
       const res = await request(app)
@@ -151,7 +178,7 @@ describe('🧪 USER TESTS', () => {
   });
 
   // ==========================================
-  // 5. PROFIL
+  // 4. PROFIL
   // ==========================================
   describe('GET /api/users/me', () => {
     test('✅ Devrait retourner le profil connecté', async () => {
@@ -173,7 +200,7 @@ describe('🧪 USER TESTS', () => {
   });
 
   // ==========================================
-  // 6. MISE À JOUR PROFIL
+  // 5. MISE À JOUR PROFIL
   // ==========================================
   describe('PUT /api/users/me', () => {
     test('✅ Devrait mettre à jour le profil', async () => {
@@ -181,10 +208,7 @@ describe('🧪 USER TESTS', () => {
         .put('/api/users/me')
         .set('Authorization', `Bearer ${clientToken}`)
         .send({
-          preferences: {
-            langue: 'fr',
-            notifications: true
-          }
+          preferences: { theme: 'dark' }
         });
 
       expect(res.status).toBe(200);
@@ -193,20 +217,53 @@ describe('🧪 USER TESTS', () => {
   });
 
   // ==========================================
-  // 7. CHANGEMENT MOT DE PASSE
+  // 6. CHANGEMENT MOT DE PASSE
   // ==========================================
   describe('PUT /api/users/me/password', () => {
     test('✅ Devrait changer le mot de passe', async () => {
+      // Créer un user avec hooks: false
+      const clientRole = await db.Role.findOne({ where: { name: 'client' } });
+      const passwordUser = await db.User.create({
+        email: 'password-test@test.com',
+        password: await bcrypt.hash('OldPassword123!', 10),
+        roleId: clientRole.id
+      }, { hooks: false });
+
+      // Créer profil client
+      await db.Client.create({
+        userId: passwordUser.id,
+        qrCode: `QRC_${crypto.randomBytes(16).toString('hex')}`,
+        prenom: 'Password',
+        nom: 'Test'
+      });
+
+      // Login
+      const loginRes = await request(app)
+        .post('/api/users/login')
+        .send({ email: 'password-test@test.com', password: 'OldPassword123!' });
+
+      const userToken = loginRes.body.data.token;
+
       const res = await request(app)
         .put('/api/users/me/password')
-        .set('Authorization', `Bearer ${clientToken}`)
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
-          currentPassword: 'Client123!',
-          newPassword: 'NewClient123!'
+          currentPassword: 'OldPassword123!',
+          newPassword: 'NewPassword123!'
         });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
+      
+      // Vérifier qu'on peut se connecter avec le nouveau mot de passe
+      const loginRes2 = await request(app)
+        .post('/api/users/login')
+        .send({
+          email: 'password-test@test.com',
+          password: 'NewPassword123!'
+        });
+      
+      expect(loginRes2.status).toBe(200);
     });
 
     test('❌ Devrait refuser mauvais mot de passe actuel', async () => {
@@ -214,7 +271,7 @@ describe('🧪 USER TESTS', () => {
         .put('/api/users/me/password')
         .set('Authorization', `Bearer ${clientToken}`)
         .send({
-          currentPassword: 'WrongPassword',
+          currentPassword: 'WrongPassword!',
           newPassword: 'NewClient123!'
         });
 
@@ -223,7 +280,7 @@ describe('🧪 USER TESTS', () => {
   });
 
   // ==========================================
-  // 8. STATS
+  // 7. STATS
   // ==========================================
   describe('GET /api/users/me/stats', () => {
     test('✅ Devrait retourner les stats', async () => {
@@ -238,7 +295,7 @@ describe('🧪 USER TESTS', () => {
   });
 
   // ==========================================
-  // 9. ADMIN - LISTE USERS
+  // 8. ADMIN - LISTE USERS
   // ==========================================
   describe('GET /api/users (ADMIN)', () => {
     test('✅ Admin devrait voir tous les users', async () => {
@@ -262,7 +319,7 @@ describe('🧪 USER TESTS', () => {
   });
 
   // ==========================================
-  // 10. ADMIN - BLACKLIST
+  // 9. ADMIN - BLACKLIST
   // ==========================================
   describe('POST /api/users/:id/blacklist (ADMIN)', () => {
     test('✅ Admin devrait pouvoir blacklister', async () => {
@@ -270,7 +327,7 @@ describe('🧪 USER TESTS', () => {
         .post(`/api/users/${testUserId}/blacklist`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          raison: 'Comportement inapproprié test'
+          raison: 'Test de blacklist pour les tests unitaires'
         });
 
       expect(res.status).toBe(200);
@@ -282,7 +339,7 @@ describe('🧪 USER TESTS', () => {
         .post('/api/users/login')
         .send({
           email: 'client@test.com',
-          password: 'NewClient123!'
+          password: 'Client123!'
         });
 
       expect(res.status).toBe(403);
@@ -290,9 +347,6 @@ describe('🧪 USER TESTS', () => {
     });
   });
 
-  // ==========================================
-  // 11. ADMIN - UNBLACKLIST
-  // ==========================================
   describe('DELETE /api/users/:id/blacklist (ADMIN)', () => {
     test('✅ Admin devrait pouvoir débloquer', async () => {
       const res = await request(app)
@@ -301,20 +355,52 @@ describe('🧪 USER TESTS', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-    });
-  });
-
-  // ==========================================
-  // 12. REFRESH TOKEN
-  // ==========================================
-  describe('POST /api/users/refresh-token', () => {
-    test('✅ Devrait rafraîchir le token', async () => {
+      
+      // Refaire le login pour récupérer un nouveau token
       const loginRes = await request(app)
         .post('/api/users/login')
         .send({
           email: 'client@test.com',
-          password: 'NewClient123!'
+          password: 'Client123!'
         });
+      
+      if (loginRes.body.data) {
+        clientToken = loginRes.body.data.token;
+      }
+    });
+  });
+
+  // ==========================================
+  // 10. REFRESH TOKEN
+  // ==========================================
+  describe('POST /api/users/refresh-token', () => {
+    test('✅ Devrait rafraîchir le token', async () => {
+      // Créer un user avec hooks: false
+      const clientRole = await db.Role.findOne({ where: { name: 'client' } });
+      const refreshUser = await db.User.create({
+        email: 'refresh@test.com',
+        password: await bcrypt.hash('Refresh123!', 10),
+        roleId: clientRole.id
+      }, { hooks: false });
+
+      // Créer profil client
+      await db.Client.create({
+        userId: refreshUser.id,
+        qrCode: `QRC_${crypto.randomBytes(16).toString('hex')}`,
+        prenom: 'Refresh',
+        nom: 'Test'
+      });
+
+      // Faire un login pour avoir un refreshToken
+      const loginRes = await request(app)
+        .post('/api/users/login')
+        .send({
+          email: 'refresh@test.com',
+          password: 'Refresh123!'
+        });
+
+      expect(loginRes.body.data).toBeDefined();
+      expect(loginRes.body.data.refreshToken).toBeDefined();
 
       const refreshToken = loginRes.body.data.refreshToken;
 
@@ -325,11 +411,12 @@ describe('🧪 USER TESTS', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.token).toBeDefined();
+      expect(res.body.data.refreshToken).toBeDefined();
     });
   });
 
   // ==========================================
-  // 13. SUPPRESSION COMPTE
+  // 11. SUPPRESSION COMPTE
   // ==========================================
   describe('DELETE /api/users/me', () => {
     test('✅ Devrait supprimer son compte', async () => {

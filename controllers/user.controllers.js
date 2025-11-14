@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { Op } = require('sequelize');
 
+
 const { User, Role, Client, Prestataire } = db;
 
 // ==========================================
@@ -82,7 +83,6 @@ exports.register = async (req, res) => {
     }, { transaction });
 
     // Générer un QR code unique
-    const crypto = require('crypto');
     const qrCode = `QR-${user.id}-${crypto.randomBytes(16).toString('hex')}`;
 
     // Créer le profil client avec QR code
@@ -258,7 +258,7 @@ exports.loginGoogle = async (req, res) => {
       }, { transaction });
 
       // Créer profil client
-      const crypto = require('crypto');
+ 
       const qrCode = `QR-${user.id}-${crypto.randomBytes(16).toString('hex')}`;
       
       await db.Client.create({
@@ -337,7 +337,7 @@ exports.loginApple = async (req, res) => {
 
     if (!user) {
       // Créer nouvel utilisateur OAuth (sans password)
-      const crypto = require('crypto');
+
       const clientRole = await db.Role.findOne({ where: { name: 'client' } });
       
       if (!clientRole) {

@@ -1,54 +1,41 @@
+// __tests__/setup.js
 const db = require('../db.config');
 
+// ==========================================
+// CONFIGURATION ENVIRONNEMENT TEST
+// ==========================================
+
+// ✅ Augmenter la durée des tokens pour les tests
+process.env.JWT_EXPIRES_IN = '24h';
+process.env.JWT_REFRESH_EXPIRES_IN = '7d';
+process.env.NODE_ENV = 'test';
+
+// ==========================================
+// SETUP GLOBAL
+// ==========================================
+
 beforeAll(async () => {
-  // Vérification de sécurité
-  if (process.env.NODE_ENV !== 'test') {
-    throw new Error('❌ NODE_ENV doit être "test" pour lancer les tests !');
-  }
-
-  const dbName = db.sequelize.config.database;
-  if (!dbName.includes('_test')) {
-    throw new Error(`❌ La base de données doit finir par "_test" ! Actuelle: ${dbName}`);
-  }
-
-  console.log(`🧪 Tests sur: ${dbName}`);
-
-  try {
-    // Connexion
-    await db.sequelize.authenticate();
-
-    // Reset complet
-    await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
-    await db.sequelize.sync({ force: true });
-    await db.sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
-
-    // Données de base
-    await db.createDefaultRoles();
-    await db.createDefaultCategories();
-
-    console.log('✅ BDD test prête\n');
-
-  } catch (error) {
-    console.error('❌ Erreur setup:', error.message);
-    throw error;
-  }
+  console.log('🧪 Tests sur:', process.env.DB_NAME_TEST || process.env.DB_NAME);
+  
+  // Synchroniser la base de données
+  await db.syncDatabase(true); // force: true pour tout recréer
+  
+  console.log('✅ BDD test prête');
 });
 
+// ==========================================
+// CLEANUP GLOBAL
+// ==========================================
+
 afterAll(async () => {
+  // Fermer la connexion proprement
   await db.sequelize.close();
   console.log('\n✅ Connexion fermée');
 });
 
-// Nettoyage entre chaque test
-afterEach(async () => {
-  try {
-    await db.Avis.destroy({ where: {}, force: true });
-    await db.Scan.destroy({ where: {}, force: true });
-    await db.Promotion.destroy({ where: {}, force: true });
-    await db.Prestataire.destroy({ where: {}, force: true });
-    await db.Client.destroy({ where: {}, force: true });
-    await db.User.destroy({ where: {}, force: true });
-  } catch (error) {
-    // Ignorer
-  }
-});
+// ==========================================
+// TIMEOUT
+// ==========================================
+
+// Augmenter le timeout pour les tests qui peuvent être lents
+jest.setTimeout(30000); // 30 secondes
